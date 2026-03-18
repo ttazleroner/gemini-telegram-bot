@@ -1,0 +1,101 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: weather_postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./.postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT}:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $${DB_USER} -d $${DB_NAME}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        compress: "true"
+    networks:
+      - weather_network
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: weather_pgadmin # использую докер компос с прошлого проекта, поэтому есть следы от прошлого проекта по типу weather, захотите поменяете
+    env_file:
+      - .env
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    volumes:
+      - ./.pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "${PGADMIN_PORT}:80"
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        compress: "true"
+    networks:
+      - weather_network
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: weather_redis
+    env_file:
+      - .env
+    volumes:
+      - ./.redis_data:/data
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT}:6379"
+    command: [ "redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}" ]
+    healthcheck:
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "PING" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        compress: "true"
+    networks:
+      - weather_network
+
+  bot:
+    build: .
+    container_name: weather_bot
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+
+      - weather_network
+
+networks:
+  weather_network:
+    name: weather_network
